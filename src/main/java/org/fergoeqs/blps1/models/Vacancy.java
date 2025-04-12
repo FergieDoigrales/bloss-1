@@ -1,7 +1,12 @@
 package org.fergoeqs.blps1.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
+import org.fergoeqs.blps1.models.enums.VacancyStatus;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "vacancies")
@@ -25,4 +30,11 @@ public class Vacancy {
 
     @Column(columnDefinition = "TEXT")
     private String keywords;
+
+    @Column(nullable = false)
+    private VacancyStatus status;
+
+    @OneToMany(mappedBy = "vacancy", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private List<Application> applications = new ArrayList<>();
 }

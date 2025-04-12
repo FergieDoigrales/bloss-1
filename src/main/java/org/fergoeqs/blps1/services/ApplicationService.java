@@ -8,15 +8,20 @@ import org.fergoeqs.blps1.models.enums.ApplicationStatus;
 import org.fergoeqs.blps1.repositories.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+@Transactional(readOnly = true)
 @Service
 public class ApplicationService {
     private static final Logger logger = LoggerFactory.getLogger(ApplicationService.class);
@@ -35,6 +40,7 @@ public class ApplicationService {
         this.resumeRepository = resumeRepository;
     }
 
+    @Transactional
     public ApplicationResponse createApplication(ApplicationRequest request) throws Exception {
         Application application = new Application();
 
@@ -92,11 +98,14 @@ public class ApplicationService {
         return mapToResponse(saved);
     }
 
-    public List<ApplicationResponse> getApplicationsByVacancyId(Long vacancyId) {
-        return applicationRepository.findByVacancyId(vacancyId)
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
+    @Transactional
+    public void deleteApplication(Long applicationId){
+        applicationRepository.deleteById(applicationId);
+    }
+
+    public Page<ApplicationResponse> getApplicationsByVacancyId(Long vacancyId, Pageable pageable) {
+        return applicationRepository.findByVacancyId(vacancyId, pageable)
+                .map(this::mapToResponse);
     }
 
     public Optional<ApplicationResponse> getApplicationById(Long id) {
@@ -104,6 +113,7 @@ public class ApplicationService {
                 .map(this::mapToResponse);
     }
 
+    @Transactional
     public ApplicationResponse acceptApplication(Long applicationId) {
         Application application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
@@ -118,6 +128,7 @@ public class ApplicationService {
         return mapToResponse(updated);
     }
 
+    @Transactional
     public ApplicationResponse rejectApplication(Long applicationId) {
         Application application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
@@ -141,7 +152,8 @@ public class ApplicationService {
                 application.getStatus().equals(ApplicationStatus.PENDING_WITH_WARNING) ?
                         "The resume partially meets the requirements of the vacancy" : null,
                 application.getCreatedAt() != null ?
-                        application.getCreatedAt() : LocalDateTime.now()
+                        application.getCreatedAt() : LocalDateTime.now(),
+                application.getCoverLetter()
         );
     }
 
@@ -150,20 +162,27 @@ public class ApplicationService {
             return true;
         }
 
-        Set<String> keywords = Arrays.stream(vacancy.getKeywords().split(","))
+        Set<String> keywords = Arrays.stream(vacancy.getKeywords().split("[,;]"))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
 
         if (keywords.isEmpty()) return true;
 
+        String resumeContent = resume.getContent().toLowerCase();
+        long requiredMatches = (long) Math.ceil(keywords.size() * 0.7);
+
         long matches = keywords.stream()
-                .filter(keyword -> resume.getContent().toLowerCase().contains(keyword.toLowerCase()))
+                .filter(keyword -> {
+                    String pattern = "\\b" + Pattern.quote(keyword.toLowerCase()) + "\\b";
+                    return Pattern.compile(pattern).matcher(resumeContent).find();
+                })
                 .count();
 
-        return matches > keywords.size() / 2;
+        return matches >= requiredMatches;
     }
 
+    @Transactional
     public ApplicationResponse addCoverLetter(Long applicationId, String coverLetter) {
         Application application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
